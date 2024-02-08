@@ -1,97 +1,107 @@
 #!/usr/bin/env python3
-"""Handling user personal data
 """
+Write a function called filter_datum that returns
+the log message obfuscated
+"""
+from typing import List
+import re
 import logging
 import mysql.connector
-from os import environ
-import re
-from typing import List
+from os import getenv
 
 
-PII_FIELDS = ('name', 'email', 'phone', 'ssn', 'password')
-
-
-def filter_datum(fields: List[str], redaction: str,
-                 message: str, separator: str) -> str:
-    """filter_datum that returns the log message obfuscated
-    Args
-        fields: a list of strings representing all fields to obfuscate
-        redaction: a string representing by what the field will be obfuscated
-        message: a string representing the log line
-        separator: a string representing by which character is separating
-        all fields in the log line (message)
-    Return (str): log message obfuscated
-    """
-    for field in fields:
-        message = re.sub(f'{field}=.*?{separator}',
-                         f'{field}={redaction}{separator}', message)
-    return message
+PII_FIELDS = ('name', 'email', 'password', 'ssn', 'phone')
 
 
 class RedactingFormatter(logging.Formatter):
-    """ Redacting Formatter class
-        """
+    """
+    Redacting Formatter class
+    """
 
     REDACTION = "***"
     FORMAT = "[HOLBERTON] %(name)s %(levelname)s %(asctime)-15s: %(message)s"
     SEPARATOR = ";"
 
     def __init__(self, fields: List[str]):
+        """
+        method initialized
+        """
         super(RedactingFormatter, self).__init__(self.FORMAT)
         self.fields = fields
 
     def format(self, record: logging.LogRecord) -> str:
-        """ Filters values in incoming log records using filter_datum """
-        record.msg = filter_datum(self.fields, self.REDACTION,
-                                  record.getMessage(), self.SEPARATOR)
-        return super(RedactingFormatter, self).format(record)
+        """
+        method calling method filter_datum
+        """
+        msg = logging.Formatter(self.FORMAT).format(record)
+        return filter_datum(self.fields, self.REDACTION, msg, self.SEPARATOR)
+
+
+def filter_datum(fields: List[str], redaction: str, message: str,
+                 separator: str) -> str:
+    """
+    The function should use a regex to replace occurrences
+    of certain field values
+    """
+    for field in fields:
+        regex = "(?<={}=)(.*?)(?={})".format(field, separator)
+        message = re.sub(regex, redaction, message)
+    return message
 
 
 def get_logger() -> logging.Logger:
-    """Create logger
     """
-    logger = logging.getLogger("user_data")
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
+    Implement a get_logger function that takes no
+    arguments and returns a logging.Logger object
+    """
+    log = logging.getLogger("user_data")
+    log.setLevel(logging.INFO)
+    log.propagate = False
 
     stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(RedactingFormatter(list(PII_FIELDS)))
-    logger.addHandler(stream_handler)
-
-    return logger
+    stream_handler.setFormatter(RedactingFormatter(PII_FIELDS))
+    log.addHandler(stream_handler)
+    return log
 
 
 def get_db() -> mysql.connector.connection.MySQLConnection:
-    """ Get database connection
     """
-    host = environ.get('PERSONAL_DATA_DB_HOST')
-    user = environ.get('PERSONAL_DATA_DB_USERNAME')
-    password = environ.get('PERSONAL_DATA_DB_PASSWORD')
-    db = environ.get('PERSONAL_DATA_DB_NAME')
+    Returns a connector to a mysql database
+    """
+    db_connection = mysql.connector.connection.MySQLConnection(
+        user=getenv('PERSONAL_DATA_DB_USERNAME', 'root'),
+        password=getenv('PERSONAL_DATA_DB_PASSWORD', ''),
+        host=getenv('PERSONAL_DATA_DB_HOST', 'localhost'),
+        database=getenv('PERSONAL_DATA_DB_NAME'))
 
-    cur = mysql.connector.connection.MySQLConnection(
-          host=host, user=user, password=password, database=db)
-
-    return cur
+    return db_connection
 
 
-def main():
-    """Read and filter data
+def main() -> None:
+    """
+    Implement a main function that takes no
+    arguments and returns nothing
     """
     db = get_db()
     cursor = db.cursor()
     cursor.execute("SELECT * FROM users;")
-    field_names = [desc[0] for desc in cursor.description]
 
-    logger = get_logger()
+    fields = []
+    result = []
+    for field in cursor.description:
+        fields.append(field[0] + "=")
+
+    log = get_logger()
 
     for row in cursor:
-        str_row = ''.join(f'{f}={str(f)}; ' for r, f in zip(row, field_names))
-        logger.info(str_row.strip())
+        for i in range(len(fields)):
+            result.append(fields[i] + str(row[i]) + ";")
+        log.info(" ".join(result))
+        result = []
 
     cursor.close()
     db.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
